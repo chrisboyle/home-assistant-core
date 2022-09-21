@@ -54,6 +54,19 @@ def convert_time_to_utc(timestr):
     return dt_util.as_timestamp(combined)
 
 
+def _without(dict_in, key):
+    ret = dict_in.copy()
+    ret.pop(key)
+    return ret
+
+
+def _from_timestamp(transit_detail):
+    return datetime.fromtimestamp(
+        int(transit_detail["departure_time"]["value"]),
+        dt_util.DEFAULT_TIME_ZONE,
+    )
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -137,7 +150,7 @@ class GoogleTravelTimeSensor(SensorEntity):
                 return round(_data["duration"]["value"] / 60)
 
         if self._departure_board is not None and len(self._departure_board) > 0:
-            return self._departure_board[0]["departure_time"]
+            return self._departure_board[0]["dep_full"]
 
         return None
 
@@ -181,7 +194,11 @@ class GoogleTravelTimeSensor(SensorEntity):
             return res
 
         if self._departure_board is not None:
-            return {"departures": self._departure_board}
+            return {
+                "departures": [
+                    _without(dep, "dep_full") for dep in self._departure_board
+                ]
+            }
 
         return None
 
@@ -240,14 +257,12 @@ class GoogleTravelTimeSensor(SensorEntity):
                 self._unit_of_measurement = None
                 self._departure_board = [
                     {
-                        "departure_time": datetime.fromtimestamp(
-                            int(td["departure_time"]["value"]),
-                            dt_util.DEFAULT_TIME_ZONE,
-                        ),
-                        "headsign": td["headsign"],
-                        "line_short_name": td["line"]["short_name"],
-                        "line_color": td["line"]["color"],
-                        "line_text_color": td["line"]["text_color"],
+                        "dep_full": _from_timestamp(td),
+                        "dep": _from_timestamp(td).strftime("%H:%M"),
+                        "to": td["headsign"],
+                        "line": td["line"]["short_name"],
+                        "bg": td["line"]["color"],
+                        "fg": td["line"]["text_color"],
                     }
                     for td in transit_details
                 ]
