@@ -27,6 +27,7 @@
                     "mode": "Travel Mode",
                     "time": "Time",
                     "time_type": "Time Type",
+                    "transit_departure_board": "Transit Departure Board",
                     "transit_mode": "Transit Mode",
                     "transit_routing_preference": "Transit Routing Preference",
                     "units": "Units"

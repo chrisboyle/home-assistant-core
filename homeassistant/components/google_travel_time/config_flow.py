@@ -23,6 +23,7 @@ from .const import (
     CONF_TIME,
     CONF_TIME_TYPE,
     CONF_TRAFFIC_MODEL,
+    CONF_TRANSIT_DEPARTURE_BOARD,
     CONF_TRANSIT_MODE,
     CONF_TRANSIT_ROUTING_PREFERENCE,
     CONF_UNITS,
@@ -104,6 +105,12 @@ class GoogleOptionsFlow(config_entries.OptionsFlow):
                             CONF_TRANSIT_ROUTING_PREFERENCE
                         ),
                     ): vol.In([None, *TRANSIT_PREFS]),
+                    vol.Optional(
+                        CONF_TRANSIT_DEPARTURE_BOARD,
+                        default=self.config_entry.options.get(
+                            CONF_TRANSIT_DEPARTURE_BOARD
+                        ),
+                    ): cv.boolean,
                 }
             ),
         )

@@ -5,9 +5,10 @@ from datetime import datetime, timedelta
 import logging
 
 from googlemaps import Client
+from googlemaps.directions import directions
 from googlemaps.distance_matrix import distance_matrix
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_ATTRIBUTION,
@@ -31,6 +32,7 @@ from .const import (
     CONF_DESTINATION,
     CONF_OPTIONS,
     CONF_ORIGIN,
+    CONF_TRANSIT_DEPARTURE_BOARD,
     CONF_TRAVEL_MODE,
     CONF_UNITS,
     DEFAULT_NAME,
@@ -103,8 +105,10 @@ class GoogleTravelTimeSensor(SensorEntity):
         """Initialize the sensor."""
         self._name = name
         self._config_entry = config_entry
+        self._attr_device_class = SensorDeviceClass.DURATION
         self._unit_of_measurement = TIME_MINUTES
         self._matrix = None
+        self._departure_board = None
         self._api_key = api_key
         self._unique_id = config_entry.entry_id
         self._client = client
@@ -125,14 +129,16 @@ class GoogleTravelTimeSensor(SensorEntity):
     @property
     def native_value(self):
         """Return the state of the sensor."""
-        if self._matrix is None:
-            return None
+        if self._matrix is not None:
+            _data = self._matrix["rows"][0]["elements"][0]
+            if "duration_in_traffic" in _data:
+                return round(_data["duration_in_traffic"]["value"] / 60)
+            if "duration" in _data:
+                return round(_data["duration"]["value"] / 60)
 
-        _data = self._matrix["rows"][0]["elements"][0]
-        if "duration_in_traffic" in _data:
-            return round(_data["duration_in_traffic"]["value"] / 60)
-        if "duration" in _data:
-            return round(_data["duration"]["value"] / 60)
+        if self._departure_board is not None and len(self._departure_board) > 0:
+            return self._departure_board[0]["departure_time"]
+
         return None
 
     @property
@@ -157,24 +163,27 @@ class GoogleTravelTimeSensor(SensorEntity):
     @property
     def extra_state_attributes(self):
         """Return the state attributes."""
-        if self._matrix is None:
-            return None
+        if self._matrix is not None:
+            res = self._matrix.copy()
+            options = self._config_entry.options.copy()
+            res.update(options)
+            del res["rows"]
+            _data = self._matrix["rows"][0]["elements"][0]
+            if "duration_in_traffic" in _data:
+                res["duration_in_traffic"] = _data["duration_in_traffic"]["text"]
+            if "duration" in _data:
+                res["duration"] = _data["duration"]["text"]
+            if "distance" in _data:
+                res["distance"] = _data["distance"]["text"]
+            res["origin"] = self._resolved_origin
+            res["destination"] = self._resolved_destination
+            res[ATTR_ATTRIBUTION] = ATTRIBUTION
+            return res
 
-        res = self._matrix.copy()
-        options = self._config_entry.options.copy()
-        res.update(options)
-        del res["rows"]
-        _data = self._matrix["rows"][0]["elements"][0]
-        if "duration_in_traffic" in _data:
-            res["duration_in_traffic"] = _data["duration_in_traffic"]["text"]
-        if "duration" in _data:
-            res["duration"] = _data["duration"]["text"]
-        if "distance" in _data:
-            res["distance"] = _data["distance"]["text"]
-        res["origin"] = self._resolved_origin
-        res["destination"] = self._resolved_destination
-        res[ATTR_ATTRIBUTION] = ATTRIBUTION
-        return res
+        if self._departure_board is not None:
+            return {"departures": self._departure_board}
+
+        return None
 
     @property
     def native_unit_of_measurement(self):
@@ -203,6 +212,8 @@ class GoogleTravelTimeSensor(SensorEntity):
         elif atime is not None:
             options_copy[CONF_ARRIVAL_TIME] = atime
 
+        use_departure_board = options_copy.pop(CONF_TRANSIT_DEPARTURE_BOARD, False)
+
         self._resolved_origin = find_coordinates(self.hass, self._origin)
         self._resolved_destination = find_coordinates(self.hass, self._destination)
 
@@ -212,9 +223,41 @@ class GoogleTravelTimeSensor(SensorEntity):
             self._resolved_destination,
         )
         if self._resolved_destination is not None and self._resolved_origin is not None:
-            self._matrix = distance_matrix(
-                self._client,
-                self._resolved_origin,
-                self._resolved_destination,
-                **options_copy,
-            )
+            if use_departure_board:
+                self._matrix = None
+                result = directions(
+                    self._client,
+                    self._resolved_origin,
+                    self._resolved_destination,
+                    alternatives=True,
+                    **options_copy,
+                )
+                first_steps = [r["legs"][0]["steps"][0] for r in result]
+                transit_details = [
+                    s["transit_details"] for s in first_steps if "transit_details" in s
+                ]
+                self._attr_device_class = SensorDeviceClass.TIMESTAMP
+                self._unit_of_measurement = None
+                self._departure_board = [
+                    {
+                        "departure_time": datetime.fromtimestamp(
+                            int(td["departure_time"]["value"]),
+                            dt_util.DEFAULT_TIME_ZONE,
+                        ),
+                        "headsign": td["headsign"],
+                        "line_short_name": td["line"]["short_name"],
+                        "line_color": td["line"]["color"],
+                        "line_text_color": td["line"]["text_color"],
+                    }
+                    for td in transit_details
+                ]
+            else:
+                self._departure_board = None
+                self._attr_device_class = SensorDeviceClass.DURATION
+                self._unit_of_measurement = TIME_MINUTES
+                self._matrix = distance_matrix(
+                    self._client,
+                    self._resolved_origin,
+                    self._resolved_destination,
+                    **options_copy,
+                )
