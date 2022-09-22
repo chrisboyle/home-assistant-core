@@ -21,6 +21,9 @@ CONF_TRANSIT_ROUTING_PREFERENCE = "transit_routing_preference"
 CONF_TIME_TYPE = "time_type"
 CONF_TIME = "time"
 
+ATTR_DEPARTURES = "departures"
+ATTR_LAST_POLL = "last_poll"
+
 ARRIVAL_TIME = "Arrival Time"
 DEPARTURE_TIME = "Departure Time"
 TIME_TYPES = [ARRIVAL_TIME, DEPARTURE_TIME]

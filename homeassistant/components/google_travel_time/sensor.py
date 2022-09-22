@@ -26,6 +26,8 @@ from homeassistant.helpers.location import find_coordinates
 import homeassistant.util.dt as dt_util
 
 from .const import (
+    ATTR_DEPARTURES,
+    ATTR_LAST_POLL,
     ATTRIBUTION,
     CONF_ARRIVAL_TIME,
     CONF_DEPARTURE_TIME,
@@ -122,6 +124,7 @@ class GoogleTravelTimeSensor(SensorEntity):
         self._unit_of_measurement = TIME_MINUTES
         self._matrix = None
         self._departure_board = None
+        self._last_poll = None
         self._api_key = api_key
         self._unique_id = config_entry.entry_id
         self._client = client
@@ -191,13 +194,15 @@ class GoogleTravelTimeSensor(SensorEntity):
             res["origin"] = self._resolved_origin
             res["destination"] = self._resolved_destination
             res[ATTR_ATTRIBUTION] = ATTRIBUTION
+            res[ATTR_LAST_POLL] = self._last_poll
             return res
 
         if self._departure_board is not None:
             return {
-                "departures": [
+                ATTR_DEPARTURES: [
                     _without(dep, "dep_full") for dep in self._departure_board
-                ]
+                ],
+                ATTR_LAST_POLL: self._last_poll,
             }
 
         return None
@@ -276,3 +281,5 @@ class GoogleTravelTimeSensor(SensorEntity):
                     self._resolved_destination,
                     **options_copy,
                 )
+
+            self._last_poll = datetime.now(tz=dt_util.DEFAULT_TIME_ZONE)
