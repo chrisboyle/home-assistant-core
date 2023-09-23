@@ -18,6 +18,7 @@ from yarl import URL
 from homeassistant.components import matter, webhook
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
+    ATTR_ICON,
     ATTR_SUPPORTED_FEATURES,
     CLOUD_NEVER_EXPOSED_ENTITIES,
     CONF_NAME,
@@ -47,6 +48,7 @@ from .const import (
     SOURCE_LOCAL,
     STORE_AGENT_USER_IDS,
     STORE_GOOGLE_LOCAL_WEBHOOK_ID,
+    TYPE_DOORBELL,
 )
 from .error import SmartHomeError
 
@@ -196,6 +198,7 @@ class AbstractConfig(ABC):
 
     async def async_report_state_all(self, message):
         """Send a state report to Google for all previously synced users."""
+        #_LOGGER.debug("async_report_state_all: %s %s", str(self._store.agent_user_ids), str(message))
         jobs = [
             self.async_report_state(message, agent_user_id)
             for agent_user_id in self._store.agent_user_ids
@@ -321,9 +324,9 @@ class AbstractConfig(ABC):
         setup_webhook_ids = []
 
         # Don't enable local SDK if ssl is enabled
-        if self.hass.config.api and self.hass.config.api.use_ssl:
-            self._local_sdk_active = False
-            return
+        #if self.hass.config.api and self.hass.config.api.use_ssl:
+        #    self._local_sdk_active = False
+        #    return
 
         for user_agent_id in self._store.agent_user_ids:
             if (webhook_id := self.get_local_webhook_id(user_agent_id)) is None:
@@ -345,6 +348,7 @@ class AbstractConfig(ABC):
                     local_only=True,
                 )
                 setup_webhook_ids.append(webhook_id)
+                _LOGGER.debug("Local SDK set up for %s", user_agent_id)
             except ValueError:
                 _LOGGER.warning(
                     "Webhook handler %s for agent user id %s is already defined!",
@@ -450,7 +454,7 @@ class GoogleConfigStore:
     """A configuration store for google assistant."""
 
     _STORAGE_VERSION = 1
-    _STORAGE_KEY = DOMAIN
+    _STORAGE_KEY = DOMAIN + "_custom"
 
     def __init__(self, hass):
         """Initialize a configuration store."""
@@ -662,6 +666,11 @@ class GoogleEntity:
                 state.domain, state.attributes.get(ATTR_DEVICE_CLASS)
             ),
         }
+        # TODO add button.ButtonDeviceClass.DOORBELL
+        if state.domain == 'input_button' and state.attributes.get(ATTR_ICON) == 'mdi:doorbell':
+            device["type"] = TYPE_DOORBELL
+            device["notificationSupportedByAgent"] = True
+
         # Add aliases
         if (config_aliases := entity_config.get(CONF_ALIASES, [])) or (
             entity_entry and entity_entry.aliases
