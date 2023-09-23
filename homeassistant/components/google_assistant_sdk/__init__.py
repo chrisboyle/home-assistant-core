@@ -5,12 +5,11 @@ import dataclasses
 
 import aiohttp
 from gassist_text import TextAssistant
-from google.oauth2.credentials import Credentials
 import voluptuous as vol
 
 from homeassistant.components import conversation
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.const import CONF_ACCESS_TOKEN, CONF_NAME, Platform
+from homeassistant.const import CONF_NAME, Platform
 from homeassistant.core import (
     HomeAssistant,
     ServiceCall,
@@ -29,6 +28,7 @@ from .const import DATA_MEM_STORAGE, DATA_SESSION, DOMAIN, SUPPORTED_LANGUAGE_CO
 from .helpers import (
     GoogleAssistantSDKAudioView,
     InMemoryStorage,
+    async_create_credentials,
     async_send_text_commands,
 )
 
@@ -164,7 +164,7 @@ class GoogleAssistantConversationAgent(conversation.AbstractConversationAgent):
             await session.async_ensure_token_valid()
             self.assistant = None
         if not self.assistant or user_input.language != self.language:
-            credentials = Credentials(session.token[CONF_ACCESS_TOKEN])
+            credentials = await async_create_credentials(self.hass, self.entry)
             self.language = user_input.language
             self.assistant = TextAssistant(credentials, self.language)
 
