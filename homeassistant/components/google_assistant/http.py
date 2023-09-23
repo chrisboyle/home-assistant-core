@@ -291,6 +291,7 @@ class GoogleConfig(AbstractConfig):
         self, message: dict[str, Any], agent_user_id: str, event_id: str | None = None
     ) -> HTTPStatus:
         """Send a state report to Google."""
+        #_LOGGER.debug("async_report_state: %s", str(message))
         data = {
             "requestId": uuid4().hex,
             "agentUserId": agent_user_id,
@@ -298,6 +299,8 @@ class GoogleConfig(AbstractConfig):
         }
         if event_id is not None:
             data["eventId"] = event_id
+        elif "devices" in message and "notifications" in message["devices"]:
+            data["eventId"] = uuid4().hex
         return await self.async_call_homegraph_api(REPORT_STATE_BASE_URL, data)
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -55,8 +56,17 @@ def async_enable_report_state(
 
         # We will report all batches except last one because those are finalized.
         while len(pending) > 1:
+            report = {"states": pending.popleft()}
+            # TODO: identify doorbells
+            if report["states"].pop("input_button.virtual_doorbell", None):
+                report["notifications"] = {"input_button.virtual_doorbell": {"ObjectDetection": {
+                    "objects": {"unclassified": 1},
+                    "priority": 0,
+                    "detectionTimestamp": int(time.time()*1000),
+                }}}
+            #_LOGGER.debug("Report state/notifications: %s", report)
             await google_config.async_report_state_all(
-                {"devices": {"states": pending.popleft()}}
+                {"devices": report}
             )
 
         # If things got queued up in last batch while we were reporting, schedule ourselves again
@@ -71,6 +81,9 @@ def async_enable_report_state(
 
     @callback
     def _async_entity_state_filter(data: EventStateChangedData) -> bool:
+        changed_entity = data["entity_id"]
+        if 'doorbell' in changed_entity:
+            _LOGGER.debug("entity_state_listener: %s", changed_entity)
         return bool(
             hass.is_running
             and (new_state := data["new_state"])
@@ -121,12 +134,13 @@ def async_enable_report_state(
         changed_entity = data["entity_id"]
         try:
             entity_data = entity.query_serialize()
+            #_LOGGER.debug("Changed serialize: %s %s", changed_entity, entity_data)
         except SmartHomeError as err:
             _LOGGER.debug("Not reporting state for %s: %s", changed_entity, err.code)
             return
 
         assert checker is not None
-        if not checker.async_is_significant_change(new_state, extra_arg=entity_data):
+        if not checker.async_is_significant_change(new_state, extra_arg=entity_data) and 'doorbell' not in changed_entity:
             return
 
         _LOGGER.debug("Scheduling report state for %s: %s", changed_entity, entity_data)
@@ -169,7 +183,9 @@ def async_enable_report_state(
 
             try:
                 entity_data = entity.query_serialize()
+                #_LOGGER.debug("Initial serialize: %s %s", entity.entity_id, entity_data)
             except SmartHomeError:
+                _LOGGER.warning("Initial serialize failed: %s", entity.entity_id)
                 continue
 
             # Tell our significant change checker that we're reporting
@@ -177,6 +193,7 @@ def async_enable_report_state(
             if not checker.async_is_significant_change(
                 entity.state, extra_arg=entity_data
             ):
+                #_LOGGER.debug("Initial not significant: %s %s", entity.entity_id, entity_data)
                 continue
 
             entities[entity.entity_id] = entity_data

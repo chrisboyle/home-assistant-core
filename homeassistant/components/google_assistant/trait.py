@@ -51,6 +51,7 @@ from homeassistant.const import (
     ATTR_CODE,
     ATTR_DEVICE_CLASS,
     ATTR_ENTITY_ID,
+    ATTR_ICON,
     ATTR_MODE,
     ATTR_SUPPORTED_FEATURES,
     ATTR_TEMPERATURE,
@@ -674,14 +675,14 @@ class SceneTrait(_Trait):
     commands = [COMMAND_ACTIVATE_SCENE]
 
     @staticmethod
-    def supported(domain, features, device_class, _):
+    def supported(domain, features, device_class, attributes):
         """Test if state is supported."""
         return domain in (
             button.DOMAIN,
             input_button.DOMAIN,
             scene.DOMAIN,
             script.DOMAIN,
-        )
+        ) and not (domain == input_button.DOMAIN and attributes.get(ATTR_ICON) == 'mdi:doorbell')
 
     def sync_attributes(self) -> dict[str, Any]:
         """Return scene attributes for a sync request."""
@@ -2784,3 +2785,28 @@ class SensorStateTrait(_Trait):
             )
 
         return {"currentSensorStateData": [sensor_data]}
+
+
+@register_trait
+class ObjectDetectionTrait(_Trait):
+    """Trait to detect objects (or pressing of doorbells).
+
+    https://developers.home.google.com/cloud-to-cloud/traits/objectdetection
+    """
+
+    name = TRAIT_OBJECTDETECTION
+    commands: list[str] = []
+
+    @staticmethod
+    def supported(domain, features, device_class, attributes):
+        """Test if state is supported."""
+        # TODO add button.ButtonDeviceClass.DOORBELL
+        return domain == input_button.DOMAIN and attributes.get(ATTR_ICON) == 'mdi:doorbell'
+
+    def sync_attributes(self):
+        """Return attributes for a sync request."""
+        return {}
+
+    def query_attributes(self):
+        """Return the attributes of this trait for this entity."""
+        return {}
