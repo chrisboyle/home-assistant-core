@@ -30,6 +30,7 @@ from .helpers import (
     InMemoryStorage,
     async_create_credentials,
     async_send_text_commands,
+    response_to_text,
 )
 
 SERVICE_SEND_TEXT_COMMAND = "send_text_command"
@@ -115,7 +116,7 @@ async def async_setup_service(hass: HomeAssistant) -> None:
             SERVICE_SEND_TEXT_COMMAND_FIELD_MEDIA_PLAYER
         )
         command_response_list = await async_send_text_commands(
-            hass, commands, media_players
+            hass, commands, media_players, call.context.user_id
         )
         if call.return_response:
             return {
@@ -142,7 +143,7 @@ class GoogleAssistantConversationAgent(conversation.AbstractConversationAgent):
         """Initialize the agent."""
         self.hass = hass
         self.entry = entry
-        self.assistant: TextAssistant | None = None
+        self.assistant: Dict[str | None, TextAssistant] = {}
         self.session: OAuth2Session | None = None
         self.language: str | None = None
 
@@ -160,16 +161,24 @@ class GoogleAssistantConversationAgent(conversation.AbstractConversationAgent):
         else:
             session = self.hass.data[DOMAIN][self.entry.entry_id][DATA_SESSION]
             self.session = session
+        user_id = user_input.context.user_id
         if not session.valid_token:
             await session.async_ensure_token_valid()
-            self.assistant = None
-        if not self.assistant or user_input.language != self.language:
-            credentials = await async_create_credentials(self.hass, self.entry)
+            self.assistant.pop(user_id, None)
+        if user_id not in self.assistant or user_input.language != self.language:
+            credentials = await async_create_credentials(self.hass, self.entry, user_id)
             self.language = user_input.language
-            self.assistant = TextAssistant(credentials, self.language)
+            self.assistant[user_id] = TextAssistant(credentials, self.language, display=True)
 
-        resp = self.assistant.assist(user_input.text)
-        text_response = resp[0] or "<empty response>"
+        resp = self.assistant[user_id].assist(user_input.text)
+        text_response = response_to_text(resp[0], resp[1])
+
+        event_data = {
+            "request": user_input.text,
+            "response": text_response,
+            "html": resp[1].decode("utf-8")
+        }
+        self.hass.bus.async_fire(DOMAIN + "_custom_event", event_data, context=user_input.context)
 
         intent_response = intent.IntentResponse(language=user_input.language)
         intent_response.async_set_speech(text_response)

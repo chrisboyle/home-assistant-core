@@ -13,6 +13,7 @@ import aiohttp
 from aiohttp import web
 from gassist_text import TextAssistant
 from google.oauth2.credentials import Credentials
+from bs4 import BeautifulSoup
 
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.components.media_player import (
@@ -60,23 +61,29 @@ class CommandResponse:
 
 
 async def async_create_credentials(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: ConfigEntry, user_id: str
 ) -> Credentials:
     """Create credentials to pass to TextAssistant."""
+    creds_key = f"{DATA_CREDENTIALS}_{user_id}"
     # Credentials already exist in memory, return that.
-    if DATA_CREDENTIALS in hass.data[DOMAIN][entry.entry_id]:
-        return hass.data[DOMAIN][entry.entry_id][DATA_CREDENTIALS]
+    if creds_key in hass.data[DOMAIN][entry.entry_id]:
+        return hass.data[DOMAIN][entry.entry_id][creds_key]
 
     # Check if there is a json file created with google-oauthlib-tool with application type of Desktop app.
     # This is needed for personal results to work.
+    suffix = ("_" + user_id) if user_id else ""
     credentials_json_filename = hass.config.path(
-        "google_assistant_sdk_credentials.json"
+        f"google_assistant_sdk_credentials{suffix}.json"
     )
+    if not os.path.isfile(credentials_json_filename):
+        credentials_json_filename = hass.config.path(
+            "google_assistant_sdk_credentials.json"
+        )
     if os.path.isfile(credentials_json_filename):
         with open(credentials_json_filename, encoding="utf-8") as credentials_json_file:
             credentials = Credentials(token=None, **json.load(credentials_json_file))
             # Store credentials in memory to avoid reading the file every time.
-            hass.data[DOMAIN][entry.entry_id][DATA_CREDENTIALS] = credentials
+            hass.data[DOMAIN][entry.entry_id][creds_key] = credentials
             return credentials
 
     # Create credentials using only the access token, application type of Web application,
@@ -93,22 +100,28 @@ async def async_create_credentials(
 
 
 async def async_send_text_commands(
-    hass: HomeAssistant, commands: list[str], media_players: list[str] | None = None
+    hass: HomeAssistant, commands: list[str], media_players: list[str] | None = None, user_id: str | None = None
 ) -> list[CommandResponse]:
     """Send text commands to Google Assistant Service."""
     # There can only be 1 entry (config_flow has single_instance_allowed)
     entry: ConfigEntry = hass.config_entries.async_entries(DOMAIN)[0]
 
-    credentials = await async_create_credentials(hass, entry)
+    credentials = await async_create_credentials(hass, entry, user_id)
     language_code = entry.options.get(CONF_LANGUAGE_CODE, default_language_code(hass))
     with TextAssistant(
-        credentials, language_code, audio_out=bool(media_players)
+        credentials, language_code, display=True, audio_out=bool(media_players)
     ) as assistant:
         command_response_list = []
         for command in commands:
             resp = assistant.assist(command)
-            text_response = resp[0]
+            text_response = response_to_text(resp[0], resp[1])
             _LOGGER.debug("command: %s\nresponse: %s", command, text_response)
+            event_data = {
+                "request": command,
+                "response": text_response,
+                "html": resp[1].decode("utf-8")
+            }
+            hass.bus.async_fire(DOMAIN + "_custom_event", event_data)
             audio_response = resp[2]
             if media_players and audio_response:
                 mem_storage: InMemoryStorage = hass.data[DOMAIN][entry.entry_id][
@@ -138,6 +151,19 @@ def default_language_code(hass: HomeAssistant) -> str:
     if language_code in SUPPORTED_LANGUAGE_CODES:
         return language_code
     return DEFAULT_LANGUAGE_CODES.get(hass.config.language, "en-US")
+
+
+def response_to_text(resp_text, resp_html):
+    if resp_text:
+        return resp_text
+    elif resp_html:
+        html = BeautifulSoup(resp_html, "html.parser")
+        card_content = html.find("div", id="assistant-card-content")
+        if card_content:
+            html = card_content
+        return html.get_text(separator="\n", strip=True)
+    else:
+        return "<empty response>"
 
 
 class InMemoryStorage:
