@@ -8,6 +8,6 @@
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "quality_scale": "gold",
-  "requirements": ["gassist-text==0.0.14"],
+  "requirements": ["gassist-text==0.0.14", "beautifulsoup4==4.12.3"],
   "single_config_entry": true
 }

@@ -30,6 +30,7 @@ from .helpers import (
     GoogleAssistantSDKRuntimeData,
     InMemoryStorage,
     best_matching_language_code,
+    response_to_text,
 )
 from .services import async_setup_services
 
@@ -133,12 +134,12 @@ class GoogleAssistantConversationAgent(conversation.AbstractConversationAgent):
         if not self.assistant or language != self.language:
             credentials = Credentials(session.token[CONF_ACCESS_TOKEN])  # type: ignore[no-untyped-call]
             self.language = language
-            self.assistant = TextAssistant(credentials, self.language)
+            self.assistant = TextAssistant(credentials, self.language, display=True)
 
         resp = await self.hass.async_add_executor_job(
             self.assistant.assist, user_input.text
         )
-        text_response = resp[0] or "<empty response>"
+        text_response = response_to_text(resp[0], resp[1])
 
         intent_response = intent.IntentResponse(language=language)
         intent_response.async_set_speech(text_response)

@@ -10,6 +10,7 @@ from aiohttp import web
 from gassist_text import TextAssistant
 from google.oauth2.credentials import Credentials
 from grpc import RpcError
+from bs4 import BeautifulSoup
 
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.components.media_player import (
@@ -88,7 +89,7 @@ async def async_send_text_commands(
     language_code = entry.options.get(CONF_LANGUAGE_CODE, default_language_code(hass))
     command_response_list = []
     with TextAssistant(
-        credentials, language_code, audio_out=bool(media_players)
+        credentials, language_code, display=True, audio_out=bool(media_players)
     ) as assistant:
         for command in commands:
             try:
@@ -102,7 +103,7 @@ async def async_send_text_commands(
                 raise HomeAssistantError(
                     translation_domain=DOMAIN, translation_key="grpc_error"
                 ) from err
-            text_response = resp[0]
+            text_response = response_to_text(resp[0], resp[1])
             _LOGGER.debug("command: %s\nresponse: %s", command, text_response)
             audio_response = resp[2]
             if media_players and audio_response:
@@ -163,6 +164,19 @@ def best_matching_language_code(
 
     # Fallback to the system default language
     return default_language_code(hass)
+
+
+def response_to_text(resp_text, resp_html):
+    if resp_text:
+        return resp_text
+    elif resp_html:
+        html = BeautifulSoup(resp_html, "html.parser")
+        card_content = html.find("div", id="assistant-card-content")
+        if card_content:
+            html = card_content
+        return html.get_text(separator="\n", strip=True)
+    else:
+        return "<empty response>"
 
 
 class InMemoryStorage:
